@@ -37,3 +37,15 @@ def test_dashboard_lists_leads_with_status_and_slots(tmp_path, monkeypatch):
     assert rows[0]["status"] == "COMPLETED"
     assert rows[0]["slots"]["city"] == "Mumbai"
     assert rows[0]["slots"]["yoe"] == 4.0
+
+
+def test_dashboard_requires_api_key_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "db_path", str(tmp_path / "dash2.db"))
+    monkeypatch.setattr(settings, "recruit_agent_api_key", "secret123")
+
+    from src.api.main import app
+    client = TestClient(app)
+
+    assert client.get("/dashboard").status_code == 401
+    assert client.get("/dashboard", headers={"x-api-key": "wrong"}).status_code == 401
+    assert client.get("/dashboard", headers={"x-api-key": "secret123"}).status_code == 200

@@ -47,5 +47,25 @@ class Settings(BaseSettings):
     silence_prompt_after_s: float = 7.0   # "Are you still there?"
     silence_close_after_s: float = 12.0   # give up and end the call
 
+    # --- API server security ------------------------------------------------
+    # Empty (default) = auth disabled; the app prints a loud startup warning.
+    # Set to require a matching key on /dashboard (header) and /ws/call (query
+    # param) -- see README's Security section.
+    recruit_agent_api_key: str = ""
+
+    # The host/port this app's own runner (`python -m src.api.main`) binds to,
+    # ALSO used as the source of truth for the startup bind-safety check: if
+    # this isn't localhost and no API key is set, the app refuses to start.
+    # Running via a bare `uvicorn ... --host 0.0.0.0` bypasses this check (the
+    # app can't see uvicorn's CLI flags) -- `python -m src.api.main` is the
+    # recommended entrypoint precisely because it keeps the two in sync.
+    bind_host: str = "127.0.0.1"
+    bind_port: int = 8000
+
+    # /ws/call abuse guards -- independent of auth: a valid key doesn't stop
+    # a buggy client from draining the LLM quota or pegging the CPU.
+    max_concurrent_calls: int = 5
+    max_calls_per_ip_per_minute: int = 3
+
 
 settings = Settings()

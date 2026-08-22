@@ -343,6 +343,38 @@ accuracy match from the previous round, pointing the same direction. The
 real test (gpt-oss-120b specifically, plus the full dual-tier latency
 histogram) is still deferred to after the Groq reset.
 
+## Security
+
+This is a prototype, not hardened for public exposure. `/dashboard` and
+`/ws/call` are **unauthenticated by default** — fine for local-only use,
+since the server binds to `127.0.0.1` by default and nothing outside your
+own machine can reach it. If you need to expose it beyond localhost:
+
+1. Set `RECRUIT_AGENT_API_KEY` in `.env`. This enforces a matching key on
+   `/dashboard` (an `X-API-Key` header) and `/ws/call` (an `?api_key=...`
+   query param — browsers can't set custom headers on a WebSocket
+   handshake).
+2. Run with `python -m src.api.main`, not a bare `uvicorn ...` invocation —
+   it binds exactly to `BIND_HOST`/`BIND_PORT` (default `127.0.0.1:8000`),
+   which is also what the startup check trusts. **If `BIND_HOST` is set to
+   anything non-local and no API key is configured, the app refuses to
+   start** rather than silently serving every lead's PII and burning your
+   LLM quota to anyone who finds the port. A bare `uvicorn --host 0.0.0.0`
+   invocation bypasses this check (the app can't see uvicorn's CLI flags),
+   which is exactly why `python -m src.api.main` is the recommended path.
+3. `/ws/call` is also rate-limited independently of auth
+   (`MAX_CONCURRENT_CALLS`, `MAX_CALLS_PER_IP_PER_MINUTE`, both
+   configurable) — a valid key doesn't stop a buggy client from opening
+   enough connections to drain your Groq quota or peg the CPU running
+   faster-whisper.
+4. `speech_buffer` (the audio accumulated per utterance) is capped at 15
+   seconds — logs a warning if it ever fires, since no real slot answer
+   should run that long; if it does on a real call, that's a VAD problem
+   worth investigating, not routine truncation.
+
+None of this is a substitute for deploying behind a real reverse proxy /
+auth layer if this is ever meant to be internet-facing.
+
 ## Phase 5 — real telephony (stubs only, gated)
 
 `src/dialer/exotel.py` and `src/dialer/plivo.py` implement

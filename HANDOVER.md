@@ -53,6 +53,9 @@ Then read, in this order:
 - Extraction p95 latency did not hit its original 800ms target even after
   optimization; masking it with filler audio (near-instant, `docs/RESULTS.md`)
   was more effective than any attempt to actually reduce it.
+- `/dashboard` and `/ws/call` are unauthenticated by default (fine for
+  localhost-only use); see README's Security section before exposing this
+  beyond your own machine.
 
 ## What's not in the repo
 

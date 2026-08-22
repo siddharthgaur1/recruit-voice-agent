@@ -4,7 +4,7 @@ from tests.conftest import FakeLLM
 
 from src.agent.graph import build_graph
 from src.agent.session import new_call_state
-from src.api.session import CallSession
+from src.api.session import MAX_SPEECH_BUFFER_BYTES, CallSession
 from src.voice.vad import EndpointDetector, frame_bytes
 
 FRAME = b"\x00\x00" * (frame_bytes() // 2)
@@ -85,6 +85,30 @@ def make_session(vad_script, texts, llm_responses):
         detector=detector,
     )
     return session
+
+
+def test_continuous_speech_never_grows_buffer_past_the_cap():
+    # A client that never pauses (malicious, faulty, or just noise the VAD
+    # reads as speech) must not grow speech_buffer without bound.
+    frame_count = MAX_SPEECH_BUFFER_BYTES // len(FRAME) + 3
+    session = make_session(
+        vad_script=[True] * frame_count,
+        texts=["whatever was heard"],
+        llm_responses=[],
+    )
+    session.muted_until = 0.0
+
+    cut_off = False
+    for _ in range(frame_count):
+        events = session.handle_frame(FRAME)
+        assert len(session.speech_buffer) <= MAX_SPEECH_BUFFER_BYTES
+        if events:
+            assert events[0]["type"] == "filler"
+            assert events[1]["type"] == "process_utterance"
+            cut_off = True
+            break
+
+    assert cut_off  # the cap forced a cutoff well before frame_count frames
 
 
 def test_opening_produces_agent_message_with_audio():

@@ -6,6 +6,7 @@ under an "audio" key) for the transport layer to actually send. That keeps
 it unit-testable with fake STT/TTS/LLM components.
 """
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -15,10 +16,19 @@ from src.agent.state import CallState
 from src.config import settings
 from src.voice.vad import EndpointDetector
 
+logger = logging.getLogger(__name__)
+
 # Spoken the instant an utterance ends, before STT/LLM/TTS run -- covers the
 # real processing latency (seconds) with near-zero perceived silence.
 # Rotated so back-to-back turns don't audibly loop the same clip.
 FILLER_PHRASES = ["Got it.", "Mm-hmm.", "Okay, one moment.", "Sure."]
+
+# No real slot answer needs this long; caps speech_buffer growth so a client
+# that never pauses (malicious, faulty, or just continuous noise the VAD
+# reads as speech) can't grow it unbounded -- security review finding.
+_MAX_UTTERANCE_S = 15.0
+_SAMPLE_RATE = 16000
+MAX_SPEECH_BUFFER_BYTES = int(_SAMPLE_RATE * 2 * _MAX_UTTERANCE_S)
 
 
 @dataclass
@@ -70,19 +80,35 @@ class CallSession:
             self.speech_buffer.extend(frame)
             self.last_activity_ts = now
             self.asked_are_you_there = False
+            if len(self.speech_buffer) >= MAX_SPEECH_BUFFER_BYTES:
+                # On a real call this means the VAD never detected silence for
+                # 15s straight -- a real candidate's slot answer never runs
+                # that long, so this is a signal something's wrong (VAD
+                # misconfigured, noisy line, or abuse), not routine truncation.
+                logger.warning(
+                    "speech_buffer hit the %.0fs cap (lead_id=%s) -- forcing an "
+                    "endpoint. Investigate if this fires on real calls.",
+                    _MAX_UTTERANCE_S, self.state.get("lead_id"),
+                )
+                self.detector.reset()  # force an endpoint; caller never said end_of_utterance
+                return self._cut_utterance()
             return []
         if event == "end_of_utterance":
-            self.speech_buffer.extend(frame)
-            audio = bytes(self.speech_buffer)
-            self.speech_buffer.clear()
             self.last_activity_ts = time.monotonic()
             self.asked_are_you_there = False
-            # Filler is sent immediately (near-0ms, pre-warmed cache hit);
-            # the actual STT/LLM/TTS work is flagged for the transport layer
-            # to run off the event loop (see ws.py) so the filler audio
-            # isn't itself delayed by the processing it's meant to cover.
-            return [self._next_filler(), {"type": "process_utterance", "audio": audio}]
+            return self._cut_utterance(trailing_frame=frame)
         return []
+
+    def _cut_utterance(self, trailing_frame: bytes | None = None) -> list[dict]:
+        if trailing_frame is not None:
+            self.speech_buffer.extend(trailing_frame)
+        audio = bytes(self.speech_buffer)
+        self.speech_buffer.clear()
+        # Filler is sent immediately (near-0ms, pre-warmed cache hit);
+        # the actual STT/LLM/TTS work is flagged for the transport layer
+        # to run off the event loop (see ws.py) so the filler audio
+        # isn't itself delayed by the processing it's meant to cover.
+        return [self._next_filler(), {"type": "process_utterance", "audio": audio}]
 
     def _next_filler(self) -> dict:
         phrase = FILLER_PHRASES[self._filler_index % len(FILLER_PHRASES)]

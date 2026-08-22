@@ -5,6 +5,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from src.agent.graph import build_graph
 from src.agent.llm import build_llm_client
 from src.agent.session import new_call_state
+from src.api.auth import websocket_api_key_ok
+from src.api.rate_limit import RateLimitExceeded, check_and_register, release
 from src.api.session import CallSession
 from src.config import settings
 from src.db.repo import (
@@ -23,6 +25,10 @@ router = APIRouter()
 FRAME_BYTES = frame_bytes()
 SILENCE_CHECK_INTERVAL_S = 1.0
 
+# WebSocket close codes (4000-4999 are reserved for application use)
+CLOSE_UNAUTHORIZED = 4401
+CLOSE_RATE_LIMITED = 4429
+
 
 async def _send_event(websocket: WebSocket, event: dict) -> None:
     audio = event.pop("audio", None)
@@ -33,6 +39,17 @@ async def _send_event(websocket: WebSocket, event: dict) -> None:
 
 @router.websocket("/ws/call")
 async def call_ws(websocket: WebSocket) -> None:
+    if not websocket_api_key_ok(websocket):
+        await websocket.close(code=CLOSE_UNAUTHORIZED, reason="missing or invalid api_key")
+        return
+
+    client_ip = websocket.client.host if websocket.client else "unknown"
+    try:
+        check_and_register(client_ip)
+    except RateLimitExceeded as e:
+        await websocket.close(code=CLOSE_RATE_LIMITED, reason=str(e))
+        return
+
     await websocket.accept()
 
     engine = make_engine(settings.db_path)
@@ -102,3 +119,4 @@ async def call_ws(websocket: WebSocket) -> None:
             domain_raw=call.state.get("domain_raw"),
         )
         db_session.close()
+        release()
