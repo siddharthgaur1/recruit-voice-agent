@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>recruit-agent call simulator</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+  #log { border: 1px solid #ccc; border-radius: 8px; padding: 1rem; min-height: 300px; margin-top: 1rem; }
+  .agent { color: #0b5; }
+  .candidate { color: #06c; }
+  .system { color: #999; font-style: italic; }
+  .latency { color: #999; font-size: 0.85em; }
+  button { font-size: 1rem; padding: 0.5rem 1rem; }
+  #status { font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>recruit-agent — call simulator</h1>
+  <p>Speak into your mic. Headphones recommended (barge-in relies on your mic
+     not hearing the agent's own voice from your speakers).</p>
+  <button id="startBtn">Start Call</button>
+  <button id="stopBtn" disabled>End Call</button>
+  <div>Status: <span id="status">idle</span></div>
+  <div id="log"></div>
+
+<script>
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const statusEl = document.getElementById('status');
+const logEl = document.getElementById('log');
+
+let ws = null;
+let audioCtx = null;
+let micStream = null;
+let sourceNode = null;
+let processorNode = null;
+let pendingMeta = null;      // metadata for the next binary frame we expect
+let currentPlayback = null;  // currently-playing AudioBufferSourceNode (for barge-in)
+
+function log(cls, text) {
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = text;
+  logEl.appendChild(div);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function resampleTo16k(float32, inputRate) {
+  if (inputRate === 16000) return float32;
+  const ratio = inputRate / 16000;
+  const outLength = Math.floor(float32.length / ratio);
+  const out = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    const srcIndex = i * ratio;
+    const i0 = Math.floor(srcIndex);
+    const i1 = Math.min(i0 + 1, float32.length - 1);
+    const frac = srcIndex - i0;
+    out[i] = float32[i0] * (1 - frac) + float32[i1] * frac;
+  }
+  return out;
+}
+
+function floatToInt16(float32) {
+  const int16 = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return int16;
+}
+
+function playPcm16(int16Bytes, sampleRate) {
+  const int16 = new Int16Array(int16Bytes);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+  const buffer = audioCtx.createBuffer(1, float32.length, sampleRate);
+  buffer.copyToChannel(float32, 0);
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioCtx.destination);
+  source.start();
+  currentPlayback = source;
+  source.onended = () => { if (currentPlayback === source) currentPlayback = null; };
+}
+
+function stopPlayback() {
+  if (currentPlayback) {
+    try { currentPlayback.stop(); } catch (e) { /* already stopped */ }
+    currentPlayback = null;
+  }
+}
+
+async function startCall() {
+  startBtn.disabled = true;
+  statusEl.textContent = 'connecting...';
+
+  micStream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 }
+  });
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  sourceNode = audioCtx.createMediaStreamSource(micStream);
+  processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/call`);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    statusEl.textContent = 'connected';
+    stopBtn.disabled = false;
+    sourceNode.connect(processorNode);
+    processorNode.connect(audioCtx.destination); // required by some browsers to run onaudioprocess
+  };
+
+  processorNode.onaudioprocess = (e) => {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    const input = e.inputBuffer.getChannelData(0);
+    const resampled = resampleTo16k(input, audioCtx.sampleRate);
+    const int16 = floatToInt16(resampled);
+    ws.send(int16.buffer);
+  };
+
+  ws.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'agent_message') {
+        pendingMeta = msg;
+        const latency = msg.latency_ms
+          ? ` (stt=${msg.latency_ms.stt ?? '-'}ms llm=${msg.latency_ms.llm ?? '-'}ms tts=${msg.latency_ms.tts ?? '-'}ms)`
+          : '';
+        log('agent', `AGENT: ${msg.text}`);
+        if (latency) log('latency', latency.trim());
+      } else if (msg.type === 'filler') {
+        pendingMeta = msg;
+        log('latency', `(filler: "${msg.text}" -- real reply processing in the background)`);
+      } else if (msg.type === 'barge_in') {
+        stopPlayback();
+        log('system', '(barge-in: agent audio cut)');
+      } else if (msg.type === 'call_ended') {
+        log('system', `--- call ended: ${msg.outcome} ---`);
+        endCall();
+      }
+    } else {
+      if (pendingMeta) {
+        playPcm16(event.data, pendingMeta.sample_rate);
+        pendingMeta = null;
+      }
+    }
+  };
+
+  ws.onclose = () => { statusEl.textContent = 'disconnected'; };
+}
+
+function endCall() {
+  statusEl.textContent = 'idle';
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  stopPlayback();
+  if (processorNode) processorNode.disconnect();
+  if (sourceNode) sourceNode.disconnect();
+  if (micStream) micStream.getTracks().forEach(t => t.stop());
+  if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+}
+
+startBtn.onclick = startCall;
+stopBtn.onclick = endCall;
+</script>
+</body>
+</html>

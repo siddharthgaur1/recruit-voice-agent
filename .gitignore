@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.db
+*.sqlite3
+.env
+models/
+data/
+logs/
+*.log
+
+# model weights (whisper/piper/ollama), in case one ever lands outside models/
+*.onnx
+*.onnx.json
+*.gguf
+*.bin
+*.safetensors
+*.pt
+
+# audio output, in case recording/caching to disk is ever added
+*.wav
+*.mp3
