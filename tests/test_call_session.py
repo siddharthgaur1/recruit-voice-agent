@@ -1,11 +1,10 @@
 import time
 
-from tests.conftest import FakeLLM
-
 from src.agent.graph import build_graph
 from src.agent.session import new_call_state
 from src.api.session import MAX_SPEECH_BUFFER_BYTES, CallSession
 from src.voice.vad import EndpointDetector, frame_bytes
+from tests.conftest import FakeLLM
 
 FRAME = b"\x00\x00" * (frame_bytes() // 2)
 
@@ -168,14 +167,45 @@ def test_filler_phrases_rotate_across_turns():
 
 
 def test_barge_in_detected_during_tts_window():
-    session = make_session(vad_script=[True], texts=[], llm_responses=[])
+    """Sustained speech cancels the agent -- but only after the debounce."""
+    required = 6  # barge_in_min_speech_ms (120) // vad_frame_ms (20)
+    session = make_session(vad_script=[True] * required, texts=[], llm_responses=[])
     session.muted_until = time.monotonic() + 10  # simulate TTS still "playing"
     session.speech_buffer.extend(b"leftover")
 
+    for _ in range(required - 1):
+        assert session.handle_frame(FRAME) == []  # not yet -- still debouncing
+        assert session.muted_until > 0.0
+
     events = session.handle_frame(FRAME)
-    assert events == [{"type": "barge_in"}]
+    assert events == [{"type": "barge_in", "speech_ms": 120}]
     assert session.muted_until == 0.0
-    assert bytes(session.speech_buffer) == b""
+    # the stale pre-barge-in buffer is gone, but the interrupting audio is kept
+    assert b"leftover" not in bytes(session.speech_buffer)
+    assert len(session.speech_buffer) == required * len(FRAME)
+
+
+def test_single_noise_frame_does_not_barge_in():
+    """One 20ms blip -- line noise, or the agent's own audio echoing back --
+    must not cut the agent off mid-sentence."""
+    session = make_session(vad_script=[True, False, True, False], texts=[], llm_responses=[])
+    session.muted_until = time.monotonic() + 10
+
+    for _ in range(4):
+        assert session.handle_frame(FRAME) == []
+    assert session.muted_until > 0.0  # still speaking
+
+
+def test_barge_in_run_resets_on_silence():
+    """Speech must be *consecutive*: scattered blips never accumulate into one."""
+    required = 6
+    script = ([True] * (required - 1)) + [False] + ([True] * (required - 1))
+    session = make_session(vad_script=script, texts=[], llm_responses=[])
+    session.muted_until = time.monotonic() + 10
+
+    for _ in range(len(script)):
+        assert session.handle_frame(FRAME) == []
+    assert session.muted_until > 0.0
 
 
 def test_silence_frame_during_tts_window_is_ignored():

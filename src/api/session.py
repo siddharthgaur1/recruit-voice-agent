@@ -44,6 +44,14 @@ class CallSession:
     asked_are_you_there: bool = False
     dnc: bool = False
     _filler_index: int = 0
+    # Barge-in debounce: consecutive speech frames seen during the TTS window,
+    # and the audio they carried (kept, so the interrupting word isn't clipped).
+    _barge_in_run: int = 0
+    _barge_in_audio: bytearray = field(default_factory=bytearray)
+
+    @property
+    def _barge_in_frames_required(self) -> int:
+        return max(1, settings.barge_in_min_speech_ms // settings.vad_frame_ms)
 
     def opening(self) -> dict:
         self.state, text = opening_message(self.state)
@@ -68,12 +76,37 @@ class CallSession:
         now = time.monotonic()
 
         if now < self.muted_until:
-            if self.detector.is_speech_frame(frame):
-                self.muted_until = 0.0
-                self.detector.reset()
-                self.speech_buffer.clear()
-                return [{"type": "barge_in"}]
-            return []
+            if not self.detector.is_speech_frame(frame):
+                # A lone blip was noise, not an interruption -- start over.
+                self._barge_in_run = 0
+                self._barge_in_audio.clear()
+                return []
+
+            self._barge_in_run += 1
+            self._barge_in_audio.extend(frame)
+            if self._barge_in_run < self._barge_in_frames_required:
+                return []
+
+            spoke_ms = self._barge_in_run * settings.vad_frame_ms
+            self.muted_until = 0.0
+            self.detector.reset()
+            # Keep the audio that triggered the barge-in: it is the start of
+            # what the candidate actually said, and dropping it clips the
+            # first word off their reply.
+            self.speech_buffer.clear()
+            self.speech_buffer.extend(self._barge_in_audio)
+            self._barge_in_audio.clear()
+            self._barge_in_run = 0
+            self.detector.in_speech = True  # so a following silence can still endpoint
+            self.last_activity_ts = now
+            self.asked_are_you_there = False
+            logger.info("barge-in after %dms of speech (lead_id=%s)",
+                        spoke_ms, self.state.get("lead_id"))
+            return [{"type": "barge_in", "speech_ms": spoke_ms}]
+
+        if self._barge_in_run:  # agent finished speaking before the run completed
+            self._barge_in_run = 0
+            self._barge_in_audio.clear()
 
         event = self.detector.process_frame(frame)
         if event == "speech":
