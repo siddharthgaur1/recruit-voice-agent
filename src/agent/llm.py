@@ -16,11 +16,29 @@ class LLMClient(Protocol):
 _REASONING_MODEL_PREFIX = "openai/gpt-oss"
 
 
+class QuotaExhaustedError(RuntimeError):
+    """A provider daily/token quota is spent -- retrying will not help.
+
+    Worth its own type: a whole day of eval traffic once exhausted the
+    gpt-oss-120b 200k/day budget (docs/RESULTS.md), and it surfaced as a
+    generic API error deep inside a benchmark run. A harness can now catch
+    this specifically and stop, rather than burning the rest of its script
+    against a tier that has nothing left.
+    """
+
+
 class GroqClient:
-    def __init__(self, api_key: str, model: str, reasoning_effort: str | None = None):
+    def __init__(self, api_key: str, model: str, reasoning_effort: str | None = None,
+                 max_retries: int | None = None, timeout_s: float | None = None):
         from groq import Groq  # imported lazily so tests never need the SDK/network
 
-        self._client = Groq(api_key=api_key)
+        # The SDK retries 429/5xx/connection errors with exponential backoff
+        # itself; these just make its budget configurable.
+        self._client = Groq(
+            api_key=api_key,
+            max_retries=settings.groq_max_retries if max_retries is None else max_retries,
+            timeout=settings.groq_timeout_s if timeout_s is None else timeout_s,
+        )
         self._model = model
         self._reasoning_effort = reasoning_effort
         # Visible so a harness can print cumulative usage as it runs and
@@ -30,7 +48,7 @@ class GroqClient:
         self.call_count = 0
 
     def complete(self, system: str, user: str) -> str:
-        kwargs: dict = dict(
+        kwargs: dict = dict(  # noqa: C408 -- kwargs are conditionally extended below
             model=self._model,
             messages=[
                 {"role": "system", "content": system},
@@ -40,7 +58,19 @@ class GroqClient:
         )
         if self._reasoning_effort and self._model.startswith(_REASONING_MODEL_PREFIX):
             kwargs["reasoning_effort"] = self._reasoning_effort
-        response = self._client.chat.completions.create(**kwargs)
+
+        try:
+            response = self._client.chat.completions.create(**kwargs)
+        except Exception as exc:  # noqa: BLE001 -- re-raised below, only 429 is special-cased
+            # Checked by attribute rather than by SDK exception class so this
+            # keeps working across groq-python versions.
+            if getattr(exc, "status_code", None) == 429 and _is_quota_exhausted(exc):
+                raise QuotaExhaustedError(
+                    f"{self._model}: provider quota exhausted, retrying will not help. "
+                    "Wait for the daily reset, switch LLM_PROVIDER (gemini/ollama), "
+                    "or disable EXTRACTION_ESCALATION_ENABLED to stay on the fast tier."
+                ) from exc
+            raise
 
         usage = getattr(response, "usage", None)
         if usage is not None:
@@ -48,6 +78,17 @@ class GroqClient:
         self.call_count += 1
 
         return response.choices[0].message.content or ""
+
+
+def _is_quota_exhausted(exc: Exception) -> bool:
+    """Distinguish a spent daily/token budget from ordinary per-minute rate
+    limiting -- the SDK's own backoff handles the latter, and only the former
+    is worth aborting a run over."""
+    text = str(exc).lower()
+    per_minute = ("per minute" in text or "requests per minute" in text or "rpm" in text)
+    return not per_minute and any(
+        k in text for k in ("quota", "per day", "daily", "tokens per day", "tpd", "limit reached")
+    )
 
 
 class GeminiClient:
