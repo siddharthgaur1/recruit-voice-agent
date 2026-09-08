@@ -9,7 +9,7 @@ def new_call_state(lead_id: str, call_attempt_id: str) -> CallState:
         "call_attempt_id": call_attempt_id,
         "company": settings.company_name,
         "transcript": [],
-        "slots": {name: None for name in SLOT_ORDER},
+        "slots": dict.fromkeys(SLOT_ORDER),
         "current_slot": SLOT_ORDER[0],
         "retry_count": 0,
         "turn_count": 0,
