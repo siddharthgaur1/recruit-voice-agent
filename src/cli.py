@@ -3,11 +3,18 @@
 from src.agent.graph import build_graph, opening_message, run_turn
 from src.agent.llm import build_llm_client
 from src.agent.session import new_call_state
-from src.config import settings
-from src.db.repo import create_call_attempt, create_lead, make_engine, make_session_factory, save_conversation_result
+from src.config import settings, setup_logging
+from src.db.repo import (
+    create_call_attempt,
+    create_lead,
+    make_engine,
+    make_session_factory,
+    save_conversation_result,
+)
 
 
 def run_cli() -> None:
+    setup_logging()
     engine = make_engine(settings.db_path)
     session_factory = make_session_factory(engine)
     session = session_factory()

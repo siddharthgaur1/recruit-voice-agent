@@ -5,18 +5,24 @@ All the retry math is pure (takes `now` as a parameter) so it can be pinned
 down with a fake clock in tests, independent of any real scheduler.
 """
 
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, time as dtime, timedelta
-from typing import Any, Callable
+from datetime import datetime, timedelta
+from datetime import time as dtime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from src.agent.graph import run_turn_verbose
 from src.agent.session import new_call_state
+from src.config import mask_phone
 from src.db.models import CallAttempt, Lead
 from src.db.repo import save_conversation_result
 from src.dialer.provider import RETRYABLE_OUTCOMES, CallOutcome, TelephonyProvider
+
+logger = logging.getLogger(__name__)
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -117,6 +123,7 @@ class DialerEngine:
                 lead.terminal_reason = "DNC"
                 lead.next_attempt_at = None
                 session.commit()
+                logger.info("lead=%s phone=%s skipped: on DNC list", lead.id, mask_phone(lead.phone))
                 return CallOutcome.DNC
 
             outcome = self.provider.place_call(lead.phone)
@@ -175,6 +182,12 @@ class DialerEngine:
                 lead.next_attempt_at = None
 
             session.commit()
+            log = logger.warning if lead.status == "UNREACHABLE" else logger.info
+            log(
+                "lead=%s phone=%s outcome=%s -> status=%s attempts=%s next_attempt_at=%s",
+                lead.id, mask_phone(lead.phone), outcome.value, lead.status,
+                lead.attempts, lead.next_attempt_at,
+            )
             return outcome
         finally:
             session.close()

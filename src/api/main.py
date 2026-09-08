@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,10 +10,12 @@ from src.agent.graph import fixed_agent_lines
 from src.api.auth import require_api_key
 from src.api.session import FILLER_PHRASES
 from src.api.ws import router as ws_router
-from src.config import settings
+from src.config import settings, setup_logging
 from src.db.models import CandidateProfile, Lead
 from src.db.repo import make_engine, make_session_factory, sweep_stale_in_progress_leads
 from src.voice.tts import get_synthesizer, voice_model_available
+
+logger = logging.getLogger(__name__)
 
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
@@ -23,6 +26,7 @@ class InsecureBindError(RuntimeError):
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    setup_logging()
     if settings.bind_host not in _LOCAL_HOSTS and not settings.recruit_agent_api_key:
         raise InsecureBindError(
             f"Refusing to start: BIND_HOST={settings.bind_host!r} is not localhost and "
@@ -31,8 +35,8 @@ async def _lifespan(app: FastAPI):
             "RECRUIT_AGENT_API_KEY in .env, or bind to 127.0.0.1."
         )
     if not settings.recruit_agent_api_key:
-        print(
-            "WARNING: RECRUIT_AGENT_API_KEY is not set -- /dashboard and /ws/call are "
+        logger.warning(
+            "RECRUIT_AGENT_API_KEY is not set -- /dashboard and /ws/call are "
             "UNAUTHENTICATED. Fine for local-only use (default bind is 127.0.0.1); "
             "do not expose this beyond localhost without setting a key."
         )
@@ -44,13 +48,13 @@ async def _lifespan(app: FastAPI):
     try:
         reset_count = sweep_stale_in_progress_leads(session, datetime.now(timezone.utc))
         if reset_count:
-            print(f"Startup sweep: reset {reset_count} stale IN_PROGRESS lead(s) to QUEUED")
+            logger.info("Startup sweep: reset %d stale IN_PROGRESS lead(s) to QUEUED", reset_count)
     finally:
         session.close()
 
     if voice_model_available():
         rendered = get_synthesizer().warm_cache(fixed_agent_lines() + FILLER_PHRASES)
-        print(f"TTS warm cache: pre-rendered {rendered} fixed line(s)")
+        logger.info("TTS warm cache: pre-rendered %d fixed line(s)", rendered)
 
     yield
 
