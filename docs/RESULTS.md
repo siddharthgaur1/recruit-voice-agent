@@ -176,6 +176,26 @@ separately in `candidate_profiles.domain_raw`. This makes "Java candidates
 in Mumbai under 60 days notice" a real, exact-match SQL query — demonstrated
 live in `python demo.py` (STEP 5) and `tests/test_candidate_query.py`.
 
+## What has NOT been measured
+
+`src/sim/held_out_personas.py` grew from 5 personas to 12 (ids 106-112:
+fresher, serving-notice, asks-to-repeat, over-explainer,
+reluctant-then-willing, career-switcher, fractional-units). **None of the
+seven has been run.** Every accuracy figure above is still the original
+5-persona result. Their answer keys are checked for internal consistency
+by `tests/test_persona_ground_truth.py` (canonical city/domain forms,
+correct types) -- that is a typo guard on the answer key, not a
+measurement of the extractor.
+
+Two of the seven encode a deliberately contested ground truth, and are
+expected to be hard:
+- `Career-switcher` -- "I was in QA for years but I've been doing Kubernetes
+  and CI/CD for the last two" is keyed `DevOps`. Feeding that whole sentence
+  to `normalize_domain_tag` returns `QA/Testing`; the key is the current
+  role, which is what the question actually asks.
+- `Fractional-units` -- "one and a half years" is keyed `1.5`. A
+  first-integer-wins parse returns `1.0`.
+
 ## What's unresolved
 
 - The real gpt-oss-120b vs. fast-tier-only accuracy/latency delta (blocked
