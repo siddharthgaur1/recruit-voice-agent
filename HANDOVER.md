@@ -15,7 +15,7 @@ Piper for voice, SQLite, a mock telephony provider with retry/backoff).
 
 ```
 python demo.py      # full pipeline, no API key needed: CSV -> dialer -> conversation -> dashboard -> query
-pytest -q           # 140 tests, no API key needed
+pytest -q           # 240 tests, no API key needed
 ```
 
 Then read, in this order:
@@ -56,6 +56,31 @@ Then read, in this order:
 - `/dashboard` and `/ws/call` are unauthenticated by default (fine for
   localhost-only use); see README's Security section before exposing this
   beyond your own machine.
+
+## Changed since the first handover
+
+- **A real timezone bug was fixed.** SQLite's plain `DateTime` dropped the
+  offset, so `next_attempt_at` came back naive and APScheduler (configured
+  `timezone=IST`) would have fired every retry 5h30m late. All datetime
+  columns now go through `models.UTCDateTime`; `tests/test_datetime_tz.py`
+  pins it, and the column now refuses to store a naive value at all.
+- **Barge-in is debounced.** It used to trigger on a single 20ms speech
+  frame, so line noise or the agent's own echo would cut it off mid-sentence;
+  it now needs `BARGE_IN_MIN_SPEECH_MS` (120ms) of consecutive speech, and
+  keeps the triggering audio instead of clipping the candidate's first word.
+- **Held-out personas: 5 -> 12** (`src/sim/held_out_personas.py`, ids
+  106-112). **They have never been run** -- no API key in this environment.
+  The accuracy numbers in `docs/RESULTS.md` are still the 5-persona ones.
+- Call events are logged (`DialerEngine`), with phone numbers masked.
+- A spent daily quota now raises `QuotaExhaustedError` rather than a generic
+  API error partway through a benchmark. (The Groq SDK already retried
+  429/5xx on its own; the budget is now configurable via `GROQ_MAX_RETRIES`.)
+- Added: CI (`.github/workflows/ci.yml`), `LICENSE` (MIT), `pyproject.toml`
+  (ruff + pytest config), `Dockerfile` (API/dialer only, **never built** --
+  no Docker daemon available here).
+- README cut 409 -> 208 lines; the round-2/round-3 build narrative it
+  carried duplicated `docs/RESULTS.md` and contradicted it with superseded
+  latency numbers.
 
 ## What's not in the repo
 
