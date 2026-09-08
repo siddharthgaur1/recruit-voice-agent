@@ -76,7 +76,7 @@ async def call_ws(websocket: WebSocket) -> None:
                 chunk = await asyncio.wait_for(
                     websocket.receive_bytes(), timeout=SILENCE_CHECK_INTERVAL_S
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 for event in call.check_silence_timeout():
                     await _send_event(websocket, event)
                     if event.get("type") == "call_ended":

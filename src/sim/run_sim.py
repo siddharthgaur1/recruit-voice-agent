@@ -29,7 +29,7 @@ def _new_state() -> dict:
         "lead_id": "sim", "call_attempt_id": "sim",
         "company": settings.company_name,
         "transcript": [],
-        "slots": {name: None for name in SLOT_ORDER},
+        "slots": dict.fromkeys(SLOT_ORDER),
         "current_slot": SLOT_ORDER[0],
         "retry_count": 0, "turn_count": 0,
         "outcome": None, "disclosed": False,

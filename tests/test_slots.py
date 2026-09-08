@@ -1,10 +1,10 @@
 import pytest
 
 from src.agent.slots import (
+    DOMAIN_TAGS,
     first_unfilled_slot,
     normalize_bool,
     normalize_city,
-    DOMAIN_TAGS,
     normalize_domain_tag,
     normalize_notice_period_days,
     normalize_yoe,
@@ -98,6 +98,5 @@ def test_first_unfilled_slot_after():
 
 
 def test_first_unfilled_slot_none_left():
-    slots = {name: "x" for name in
-             ["interested", "yoe", "domain", "city", "notice_period_days", "confirmed"]}
+    slots = dict.fromkeys(["interested", "yoe", "domain", "city", "notice_period_days", "confirmed"], "x")
     assert first_unfilled_slot(slots) is None

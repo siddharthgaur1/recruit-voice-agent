@@ -86,7 +86,7 @@ def main() -> None:
             by_persona[(label, persona_name)][0] += 1
 
     print(f"\n=== Escalation rate (fast-tier confidence < {CONFIDENCE_THRESHOLD}) ===")
-    print(f"(computed from fast-tier confidence scores only -- zero 120b calls)")
+    print("(computed from fast-tier confidence scores only -- zero 120b calls)")
     print(f"Turns that reached an LLM at all (excludes fast-path hits): {len(all_events)}")
 
     print("\nBy slot:")

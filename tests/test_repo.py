@@ -1,5 +1,11 @@
 from src.db.models import CandidateProfile, Lead
-from src.db.repo import create_call_attempt, create_lead, make_engine, make_session_factory, save_conversation_result
+from src.db.repo import (
+    create_call_attempt,
+    create_lead,
+    make_engine,
+    make_session_factory,
+    save_conversation_result,
+)
 
 
 def make_session(tmp_path):
@@ -40,7 +46,7 @@ def test_opt_out_sets_dnc_flag(tmp_path):
 
     save_conversation_result(
         session, lead_id=lead.id, call_attempt_id=attempt.id,
-        slots={name: None for name in ["interested", "yoe", "domain", "city", "notice_period_days", "confirmed"]},
+        slots=dict.fromkeys(["interested", "yoe", "domain", "city", "notice_period_days", "confirmed"]),
         transcript=[], outcome="NOT_INTERESTED", dnc=True,
     )
 

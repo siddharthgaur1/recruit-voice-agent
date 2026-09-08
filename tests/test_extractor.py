@@ -1,6 +1,5 @@
-from tests.conftest import FakeLLM
-
 from src.agent.extractor import extract
+from tests.conftest import FakeLLM
 
 
 def test_extract_happy_path():

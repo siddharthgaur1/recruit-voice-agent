@@ -39,8 +39,9 @@ def test_java_candidates_in_mumbai_under_60_days_is_a_real_query(tmp_path):
         .all()
     )
 
-    phones = {session.get(CandidateProfile, r.id).lead_id for r in results}
     assert len(results) == 2
+    # the two matches must be two distinct leads, not one lead counted twice
+    assert len({r.lead_id for r in results}) == 2
     for row in results:
         assert row.domain == "Java"
         assert row.city == "Mumbai"

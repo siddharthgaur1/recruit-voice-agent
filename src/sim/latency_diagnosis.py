@@ -45,7 +45,7 @@ def _histogram(latencies: list[float], buckets_ms=(100, 250, 500, 1000, 2000, 40
 
     lines = []
     max_count = max(counts) or 1
-    for label, count in zip(labels, counts):
+    for label, count in zip(labels, counts, strict=True):
         bar = "#" * int(count / max_count * 40)
         lines.append(f"  {label:>12}: {count:>3}  {bar}")
     return "\n".join(lines)
@@ -112,11 +112,11 @@ def run_diagnosis(llm, min_llm_calls: int = 1) -> None:
 
     if llm_only_ms:
         retry_rate = sum(retried_flags) / len(retried_flags) * 100
-        print(f"\n=== Retry analysis ===")
+        print("\n=== Retry analysis ===")
         print(f"  {sum(retried_flags)}/{len(retried_flags)} LLM calls retried ({retry_rate:.1f}%)")
 
         n = len(llm_only_ms)
-        sorted_pairs = sorted(zip(llm_only_ms, retried_flags), key=lambda p: p[0])
+        sorted_pairs = sorted(zip(llm_only_ms, retried_flags, strict=True), key=lambda p: p[0])
         p95_cutoff_idx = int(n * 0.95)
         tail = sorted_pairs[p95_cutoff_idx:]
         body = sorted_pairs[:p95_cutoff_idx]
@@ -165,7 +165,6 @@ def _report_discriminator(call_details: list[tuple[str, str, int, float]]) -> No
               "increase min_llm_calls so every persona reply recurs at least 3x)")
         return
 
-    overall_mean = statistics.mean(ms for values in repeated.values() for ms in values)
     overall_stdev = statistics.stdev(ms for values in repeated.values() for ms in values)
 
     per_prompt_stdevs = [statistics.stdev(v) for v in repeated.values()]

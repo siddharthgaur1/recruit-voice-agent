@@ -1,7 +1,6 @@
-from tests.conftest import FakeLLM
-
 from src.agent.graph import build_graph, opening_message, run_turn
 from src.agent.slots import SLOT_ORDER
+from tests.conftest import FakeLLM
 
 
 def new_state():
@@ -10,7 +9,7 @@ def new_state():
         "call_attempt_id": "attempt-1",
         "company": "Acme Corp",
         "transcript": [],
-        "slots": {name: None for name in SLOT_ORDER},
+        "slots": dict.fromkeys(SLOT_ORDER),
         "current_slot": SLOT_ORDER[0],
         "retry_count": 0,
         "turn_count": 0,

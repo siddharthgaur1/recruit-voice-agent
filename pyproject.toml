@@ -1,0 +1,28 @@
+[project]
+name = "recruit-agent"
+version = "0.1.0"
+description = "Outbound recruitment voice agent: 6-slot screening over a deterministic LangGraph state machine, zero paid services."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = [
+    "E501",  # long lines: the explanatory comments in this codebase are the point
+    "B008",  # FastAPI's Depends() in a default arg is the documented idiom
+    "UP017", # datetime.UTC over timezone.utc: pure churn across 13 call sites
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
