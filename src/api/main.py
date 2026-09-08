@@ -59,7 +59,7 @@ async def _lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="recruit-agent voice simulator", lifespan=_lifespan)
+app = FastAPI(title="recruit-voice-agent", lifespan=_lifespan)
 app.include_router(ws_router)
 
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"

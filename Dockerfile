@@ -20,7 +20,7 @@ COPY . .
 
 # Bind 0.0.0.0 inside the container; the app REFUSES to start on a non-local
 # bind without RECRUIT_AGENT_API_KEY set (src/api/main.py), so pass one:
-#   docker run -e RECRUIT_AGENT_API_KEY=... -e BIND_HOST=0.0.0.0 -p 8000:8000 recruit-agent
+#   docker run -e RECRUIT_AGENT_API_KEY=... -e BIND_HOST=0.0.0.0 -p 8000:8000 recruit-voice-agent
 ENV BIND_HOST=0.0.0.0 \
     BIND_PORT=8000
 EXPOSE 8000

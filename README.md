@@ -1,4 +1,4 @@
-# recruit-agent
+# recruit-voice-agent
 
 Outbound recruitment voice agent. It cold-calls a candidate, runs a fixed
 6-slot screening script (interested, years of experience, domain, city,
@@ -32,7 +32,7 @@ no network, no key: CSV lead import → dialer with retry/backoff → the real
 conversation state machine on answered calls → a dashboard listing → a real
 SQL query ("Java candidates in Mumbai under 60 days notice"). Takes seconds.
 
-`pytest -q` (173 tests) also runs cold, with no key and no model downloads.
+`pytest -q` (240 tests) also runs cold, with no key and no model downloads.
 
 ## Setup for the parts that need more
 
@@ -57,7 +57,7 @@ multilingual — needed for Hinglish; `WHISPER_MODEL=base` for a smaller one).
 | Command | What it does | Needs a key? |
 |---|---|---|
 | `python demo.py` | Full pipeline end to end, fake LLM | no |
-| `pytest -q` | 173 tests | no |
+| `pytest -q` | 240 tests | no |
 | `python -m src.cli` | Text conversation; type replies at `YOU:` | yes |
 | `python -m src.api.main` | Voice server + dashboard on :8000 | yes |
 | `python -m src.dialer.import_csv leads.csv` | Import `phone,name,dnc_flag` | no |
@@ -188,7 +188,7 @@ not legal advice.
 ## Development
 
 ```
-pytest -q          # 173 tests, no key, no network
+pytest -q          # 240 tests, no key, no network
 ruff check .       # lint (config in pyproject.toml)
 python demo.py     # end-to-end smoke
 ```

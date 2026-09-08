@@ -1,5 +1,5 @@
 [project]
-name = "recruit-agent"
+name = "recruit-voice-agent"
 version = "0.1.0"
 description = "Outbound recruitment voice agent: 6-slot screening over a deterministic LangGraph state machine, zero paid services."
 requires-python = ">=3.11"
