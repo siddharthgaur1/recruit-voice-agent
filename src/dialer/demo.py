@@ -16,19 +16,19 @@ quality against the real model.
 """
 
 import csv
+import logging
 import random
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
-from tests.conftest import FakeLLM
-
 from src.agent.graph import build_graph
+from src.db.models import CandidateProfile, Lead
+from src.db.repo import import_leads_csv, make_engine, make_session_factory
 from src.dialer.mock import MockProvider
 from src.dialer.provider import CallOutcome
 from src.dialer.scheduler import IST, DialerEngine
-from src.db.models import CandidateProfile, Lead
-from src.db.repo import import_leads_csv, make_engine, make_session_factory
+from tests.conftest import FakeLLM
 
 START = datetime(2026, 1, 5, 11, 0, tzinfo=IST)
 
@@ -84,6 +84,10 @@ class FakeClock:
 
 
 def main() -> None:
+    # This script narrates itself step by step -- library log records would
+    # interleave onto stderr ahead of the banners and read as errors.
+    logging.getLogger("src").setLevel(logging.ERROR)
+
     print("=" * 78)
     print("STEP 1/5: import leads from CSV")
     print("=" * 78)
@@ -106,7 +110,7 @@ def main() -> None:
     print("=" * 78)
     clock = FakeClock(START)
     dialers: dict[str, DialerEngine] = {}
-    for lead_id, (call_script, llm_responses, replies) in zip(lead_ids, _LEAD_SCRIPTS):
+    for lead_id, (call_script, llm_responses, replies) in zip(lead_ids, _LEAD_SCRIPTS, strict=True):
         provider = MockProvider(scripted=list(call_script))
         graph = build_graph(FakeLLM(llm_responses)) if llm_responses else None
         conversation_replies = (lambda lead, r=replies: r) if replies else None
@@ -127,11 +131,11 @@ def main() -> None:
         due = []
         for lead_id in pending:
             lead = session.get(Lead, lead_id)
-            due.append((lead.next_attempt_at or clock.current.replace(tzinfo=None), lead_id))
+            due.append((lead.next_attempt_at or clock.current, lead_id))
         session.close()
         due.sort(key=lambda pair: pair[0])
         next_time, lead_id = due[0]
-        clock.advance_to(next_time.replace(tzinfo=IST) if next_time.tzinfo is None else next_time)
+        clock.advance_to(next_time)
 
         outcome = dialers[lead_id].attempt_call(lead_id)
 
@@ -165,10 +169,10 @@ def main() -> None:
     session.close()
 
     print("\n=== Sample retry timeline (a lead that exhausts BUSY/NO_ANSWER retries) ===")
-    for lead_id, events in timelines.items():
+    for _lead_id, events in timelines.items():
         if len(events) == 4 and events[0][1] == CallOutcome.BUSY:
             for i, (at, outcome, bucket) in enumerate(events, start=1):
-                print(f"  attempt {i}: {at.isoformat()}  outcome={outcome.value}  bucket={bucket}")
+                print(f"  attempt {i}: {at.astimezone(IST).isoformat()}  outcome={outcome.value}  bucket={bucket}")
             break
 
     print("\n=== Sample FAILED timeline (infra errors don't burn the attempt budget) ===")
@@ -179,7 +183,7 @@ def main() -> None:
             print(f"  lead attempts={lead.attempts} failed_retry_count={lead.failed_retry_count} "
                   f"status={lead.status} terminal_reason={lead.terminal_reason}")
             for i, (at, outcome, _bucket) in enumerate(events, start=1):
-                print(f"    call {i}: {at.isoformat()}  outcome={outcome.value}")
+                print(f"    call {i}: {at.astimezone(IST).isoformat()}  outcome={outcome.value}")
             session.close()
 
     print()
