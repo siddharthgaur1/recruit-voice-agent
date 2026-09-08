@@ -1,8 +1,9 @@
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
+from src.db.models import Lead
+from src.db.repo import create_lead, make_engine, make_session_factory
 from src.dialer.mock import MockProvider
 from src.dialer.provider import CallOutcome
 from src.dialer.scheduler import (
@@ -14,17 +15,10 @@ from src.dialer.scheduler import (
     next_bucket,
     push_into_calling_hours,
 )
-from src.db.models import Lead
-from src.db.repo import create_lead, make_engine, make_session_factory
 
 
 def ist(y, mo, d, h, mi=0):
     return datetime(y, mo, d, h, mi, tzinfo=IST)
-
-
-def naive(dt: datetime) -> datetime:
-    """SQLite/SQLAlchemy round-trips DateTime columns as naive -- compare on that basis."""
-    return dt.replace(tzinfo=None)
 
 
 def resp(intent="ANSWER", slots=None, confidence=0.9):
@@ -159,24 +153,24 @@ def test_dialer_engine_full_retry_campaign_then_unreachable(tmp_path):
     lead = session.get(Lead, lead_id)
     assert lead.attempts == 1
     assert lead.status == "QUEUED"
-    assert lead.next_attempt_at == naive(ist(2026, 1, 5, 11, 15))
+    assert lead.next_attempt_at == ist(2026, 1, 5, 11, 15)
     session.close()
 
-    clock.advance_to(lead.next_attempt_at.replace(tzinfo=IST))
+    clock.advance_to(lead.next_attempt_at)
     dialer.attempt_call(lead_id)
     session = session_factory()
     lead = session.get(Lead, lead_id)
     assert lead.attempts == 2
-    assert lead.next_attempt_at == naive(ist(2026, 1, 5, 13, 15))
+    assert lead.next_attempt_at == ist(2026, 1, 5, 13, 15)
     session.close()
 
-    clock.advance_to(lead.next_attempt_at.replace(tzinfo=IST))
+    clock.advance_to(lead.next_attempt_at)
     dialer.attempt_call(lead_id)
     session = session_factory()
     lead = session.get(Lead, lead_id)
     assert lead.attempts == 3
     assert lead.last_bucket in ("AFTERNOON",)  # rotated away from MORNING
-    third_next = lead.next_attempt_at.replace(tzinfo=IST)
+    third_next = lead.next_attempt_at
     session.close()
 
     clock.advance_to(third_next)
@@ -238,7 +232,7 @@ def test_terminal_reason_recorded_when_retries_exhausted(tmp_path):
         session = session_factory()
         lead = session.get(Lead, lead_id)
         if lead.next_attempt_at is not None:
-            clock.advance_to(lead.next_attempt_at.replace(tzinfo=IST))
+            clock.advance_to(lead.next_attempt_at)
         session.close()
 
     assert lead.status == "UNREACHABLE"
@@ -273,7 +267,7 @@ def test_failed_outcome_does_not_increment_attempts_and_uses_own_backoff(tmp_pat
     lead = session.get(Lead, lead_id)
     assert lead.attempts == 0  # infra error -- not a real dial attempt
     assert lead.status == "QUEUED"
-    assert lead.next_attempt_at == naive(ist(2026, 1, 5, 11, 5))  # +5 min, its own backoff
+    assert lead.next_attempt_at == ist(2026, 1, 5, 11, 5)  # +5 min, its own backoff
     assert lead.failed_retry_count == 1
     session.close()
 
@@ -284,12 +278,12 @@ def test_failed_outcome_caps_at_three_consecutive_retries_then_unreachable(tmp_p
     provider = MockProvider(scripted=[CallOutcome.FAILED] * 4)
     dialer = DialerEngine(session_factory=session_factory, provider=provider, clock=clock)
 
-    for i in range(4):
+    for _ in range(4):
         dialer.attempt_call(lead_id)
         session = session_factory()
         lead = session.get(Lead, lead_id)
         if lead.next_attempt_at is not None:
-            clock.advance_to(lead.next_attempt_at.replace(tzinfo=IST))
+            clock.advance_to(lead.next_attempt_at)
         session.close()
 
     assert lead.status == "UNREACHABLE"
@@ -307,7 +301,7 @@ def test_failed_retry_count_resets_after_a_real_outcome(tmp_path):
     dialer.attempt_call(lead_id)  # FAILED -> failed_retry_count = 1
     session = session_factory()
     lead = session.get(Lead, lead_id)
-    clock.advance_to(lead.next_attempt_at.replace(tzinfo=IST))
+    clock.advance_to(lead.next_attempt_at)
     session.close()
 
     dialer.attempt_call(lead_id)  # BUSY -> resets failed_retry_count
@@ -334,9 +328,8 @@ def _cooperative_llm_responses():
 
 
 def test_human_answered_runs_conversation_and_sets_final_status(tmp_path):
-    from tests.conftest import FakeLLM
-
     from src.agent.graph import build_graph
+    from tests.conftest import FakeLLM
 
     session_factory, lead_id = make_engine_and_lead(tmp_path)
     clock = FakeClock(ist(2026, 1, 5, 11, 0))
@@ -361,9 +354,8 @@ def test_human_answered_runs_conversation_and_sets_final_status(tmp_path):
 
 
 def test_human_answered_conversation_decline_sets_not_interested(tmp_path):
-    from tests.conftest import FakeLLM
-
     from src.agent.graph import build_graph
+    from tests.conftest import FakeLLM
 
     session_factory, lead_id = make_engine_and_lead(tmp_path)
     clock = FakeClock(ist(2026, 1, 5, 11, 0))

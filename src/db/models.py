@@ -1,8 +1,37 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+class UTCDateTime(TypeDecorator):
+    """Datetime column that is always UTC-aware in Python.
+
+    SQLite's DATETIME stores no offset, so a bare `DateTime` column silently
+    returns a NAIVE datetime -- which APScheduler (constructed with
+    timezone=IST in src/dialer/scheduler.py) would then localize as IST,
+    firing every retry 5h30m late. Coerce to UTC on the way in, re-attach
+    UTC on the way out.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError(
+                f"refusing to store a naive datetime ({value!r}); "
+                "use datetime.now(timezone.utc)"
+            )
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value.replace(tzinfo=timezone.utc)
 
 
 def _uuid() -> str:
@@ -25,17 +54,17 @@ class Lead(Base):
     name: Mapped[str] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default="NEW")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
-    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     last_bucket: Mapped[str | None] = mapped_column(String, nullable=True)
     dnc_flag: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
 
     # which CallOutcome (or conversation outcome) produced a terminal rollup status
     terminal_reason: Mapped[str | None] = mapped_column(String, nullable=True)
     # consecutive infra-error (FAILED) retries, capped independently of `attempts`
     failed_retry_count: Mapped[int] = mapped_column(Integer, default=0)
     # when status last became IN_PROGRESS; lets a startup sweep find stuck leads
-    in_progress_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    in_progress_since: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class CallAttempt(Base):
@@ -43,8 +72,8 @@ class CallAttempt(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     lead_id: Mapped[str] = mapped_column(String, ForeignKey("leads.id"))
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=_now)
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     duration_s: Mapped[float | None] = mapped_column(Float, nullable=True)
     outcome: Mapped[str | None] = mapped_column(String, nullable=True)
     provider: Mapped[str] = mapped_column(String, default="mock")
@@ -60,7 +89,7 @@ class Conversation(Base):
     transcript_json: Mapped[str] = mapped_column(Text)
     slots_filled_count: Mapped[int] = mapped_column(Integer, default=0)
     outcome: Mapped[str | None] = mapped_column(String, nullable=True)
-    link_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    link_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 class CandidateProfile(Base):
