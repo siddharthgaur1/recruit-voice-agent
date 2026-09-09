@@ -1,4 +1,4 @@
-langgraph==0.2.76
+langgraph==1.2.11
 groq==1.6.0
 google-genai==2.19.0
 SQLAlchemy==2.0.52
