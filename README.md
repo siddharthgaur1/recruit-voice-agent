@@ -19,6 +19,10 @@ deliberately stubbed pending the compliance work in `docs/COMPLIANCE.md`.
   command, with the small-sample and unresolved ones labelled as such.
 - **`docs/COMPLIANCE.md`** is what's legally required before any real call.
 
+![Terminal output of demo.py: 20 leads through the mock dialer, final status distribution and query result](docs/demo.svg)
+
+<sub>Real output of `python demo.py` (scripted fake LLM, mock telephony, no keys), with the middle ~80 lines of per-lead detail marked as omitted. Regenerate with `python scripts/make_readme_capture.py`.</sub>
+
 ## Quickstart (no API key needed)
 
 ```
