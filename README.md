@@ -1,5 +1,10 @@
 # recruit-voice-agent
 
+[![Portfolio](https://img.shields.io/badge/%E2%86%A9-siddharthgaur1-111827?style=flat-square)](https://github.com/siddharthgaur1)
+[![CI](https://github.com/siddharthgaur1/recruit-voice-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/siddharthgaur1/recruit-voice-agent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)
+
 Outbound recruitment voice agent. It cold-calls a candidate, runs a fixed
 6-slot screening script (interested, years of experience, domain, city,
 notice period, confirmation) through a deterministic LangGraph state
